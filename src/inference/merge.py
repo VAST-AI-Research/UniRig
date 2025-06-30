@@ -291,7 +291,7 @@ def make_armature(
             vis.append(x.name)
         
         n_vertices = []
-        m = np.array(ob.matrix_world)
+        m = local_coord @ np.array(ob.matrix_world)
         matrix_world_rot = m[:3, :3]
         matrix_world_bias = m[:3, 3]
         for v in ob.data.vertices:
