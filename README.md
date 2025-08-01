@@ -46,10 +46,11 @@ We are open-sourcing UniRig progressively. Please note the current status:
 **Available Now (Initial Release):**
 *   ✅ **Code:** Implementation for skeleton and skinning prediction.
 *   ✅ **Model:** Skeleton & Skinning Prediction checkpoint trained on [**Articulation-XL2.0**](https://huggingface.co/datasets/Seed3D/Articulation-XL2.0). Available on [Hugging Face](https://huggingface.co/VAST-AI/UniRig).
+*   ✅ **Dataset:** Release of the **Rig-XL** and **VRoid** datasets used in the paper. We also filtered out 31 broken models in the training dataset which do not affect the performance of the final model.
 
 **Planned Future Releases:**
-*   ⏳ Release of the **Rig-XL** and **VRoid** datasets used in the paper.
 *   ⏳ Full UniRig model checkpoints (Skeleton + Skinning) trained on Rig-XL/VRoid, replicating the paper's main results.
+*   ⏳ Training code.
 
 We appreciate your patience as we prepare these components for release. Follow [VAST-AI-Research](https://github.com/orgs/VAST-AI-Research) announcements for updates!
 
@@ -91,9 +92,68 @@ We appreciate your patience as we prepare these components for release. Follow [
     python -c "import bpy, os; bpy.ops.preferences.addon_install(filepath=os.path.abspath('blender/add-on-vrm-v2.20.77_modified.zip'))"
     ```
 
+## RigXL Dataset
+
+[processed data link](https://huggingface.co/VAST-AI/UniRig/tree/main/data/rigxl)
+
+Notice that aside from vroid, all models are selected from [Objaverse](https://huggingface.co/datasets/allenai/objaverse-xl). Just download `mapping.json` if you already have Objaverse dataset (or need to download from web).
+
+The json contains all ids of the models with `type` indicating their category and `url` specifying where to download. `url` is the same with `fileIdentifier` in Objaverse.
+
+Training/validation split is put in `datalist` folder.
+
+📝 **Note**:  
+All floating-point values are stored in **`float16`** format for compression.
+
+### Visualize Data
+
+Put the dataset in `dataset_clean`, go back to root, and run the command to export FBX model:
+
+```python
+from src.data.raw_data import RawData
+raw_data = RawData.load("dataset_clean/rigxl/12345/raw_data.npz")
+raw_data.export_fbx("res.fbx")
+```
+
+<details>
+<summary><strong>📁 Dataset Format</strong> (click to expand)</summary>
+
+### 🔑 Keys of Data
+
+All models are converted into world space.
+
+- **`vertices`**:  
+  Position of the vertices of the mesh, shape `(N, 3)`.
+
+- **`vertex_normals`**:  
+  Normals of the vertices, processed by `Trimesh`, shape `(N, 3)`.
+
+- **`faces`**:  
+  Indices of mesh faces (triangles), starting from 0, shape `(F, 3)`.
+
+- **`face_normals`**:  
+  Normals of the faces, shape `(F, 3)`.
+
+- **`joints`**:  
+  Positions of the armature joints, shape `(J, 3)`.
+
+- **`skin`**:  
+  Skinning weights for each vertex, shape `(N, J)`.
+
+- **`parents`**:  
+  Parent index of each joint, where `parents[0]` is always `None` (root), shape `(J)`.
+
+- **`names`**:  
+  Name of each joint.
+
+- **`matrix_local`**:  
+  The local axis of each bone; aligned to Y-up axis, consistent with Blender.
+
+</details>
+
 ## Usage
 
-### Skeleton Prediction (Available Now)
+### Skeleton Prediction
 
 Generate a skeleton for your 3D model using our pre-trained model. The process automatically analyzes the geometry and predicts an appropriate skeletal structure.
 
@@ -110,7 +170,7 @@ bash launch/inference/generate_skeleton.sh --input examples/giraffe.glb --output
 
 Supported input formats: `.obj`, `.fbx`, `.glb`, and `.vrm`
 
-### Skinning Weight Prediction (Available Now)
+### Skinning Weight Prediction
 ```bash
 # Skin a single file
 bash launch/inference/generate_skin.sh --input examples/skeleton/giraffe.fbx --output results/giraffe_skin.fbx
