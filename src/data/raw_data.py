@@ -63,7 +63,7 @@ class RawData(Exporter):
         d['path'] = path
         skin = d.get('skin', None)
         if skin is not None:
-            d['no_skin'] = np.all(d>0, axis=0)
+            d['no_skin'] = ~np.any(d>0, axis=0)
         else:
             d['no_skin'] = None
         return RawData(**d).change_dtype(origin, to)
