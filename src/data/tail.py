@@ -35,7 +35,6 @@ class Tail():
     
     def process_tail(self, asset: Asset):
         if self.config.copy_joint_to_tail:
-            assert asset.tails is None, 'copying joints to existing tails is not permitted, please change copy_joint_to_tail to False in transform config'
             asset.tails = asset.joints.copy()
         if self.config.connect_tail_to_unique_son and asset.tails is not None:
             children = defaultdict(list)

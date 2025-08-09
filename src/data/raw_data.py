@@ -16,29 +16,23 @@ class RawData(Exporter):
     Dataclass to handle data from processed model files.
     '''
     
-    # vertices of the mesh, shape (N, 3), float32
+    # vertices of the mesh, shape (N, 3)
     vertices: Union[ndarray, None]
     
-    # normals of vertices, shape (N, 3), float32
+    # normals of vertices, shape (N, 3)
     vertex_normals: Union[ndarray, None]
     
-    # faces of mesh, shape (F, 3), face id starts from 0 to F-1, int64
+    # faces of mesh, shape (F, 3), face id starts from 0 to F-1
     faces: Union[ndarray, None]
     
-    # face normal of mesh, shape (F, 3), float32
+    # face normal of mesh, shape (F, 3)
     face_normals: Union[ndarray, None]
     
-    # joints of bones, shape (J, 3), float32
+    # joints of bones, shape (J, 3)
     joints: Union[ndarray, None]
     
-    # tails of joints, shape (J, 3), float32
-    tails: Union[ndarray, None]
-    
-    # skinning of joints, shape (N, J), float32
+    # skinning of joints, shape (N, J)
     skin: Union[ndarray, None]
-    
-    # whether the joint has skin, bool
-    no_skin: Union[ndarray, None]
     
     # parents of joints, None represents no parent(a root joint)
     # make sure parent[k] < k
@@ -50,6 +44,12 @@ class RawData(Exporter):
     # local coordinate
     matrix_local: Union[ndarray, None]
     
+    # tails of joints, shape (J, 3)
+    tails: Union[ndarray, None]=None
+    
+    # whether the joint has skin, bool
+    no_skin: Union[ndarray, None]=None
+    
     # path to data
     path: Union[str, None]=None
     
@@ -57,10 +57,23 @@ class RawData(Exporter):
     cls: Union[str, None]=None
     
     @staticmethod
-    def load(path: str) -> 'RawData':
+    def load(path: str, origin=np.float16, to=np.float32) -> 'RawData':
         data = np.load(path, allow_pickle=True)
         d = {name: data[name][()] for name in data}
         d['path'] = path
+        skin = d.get('skin', None)
+        if skin is not None:
+            d['no_skin'] = np.all(d>0, axis=0)
+        else:
+            d['no_skin'] = None
+        return RawData(**d).change_dtype(origin, to)
+    
+    def change_dtype(self, origin, to) -> 'RawData':
+        d = {}
+        for k, v in self.__dict__.items():
+            if isinstance(v, ndarray) and v.dtype == origin:
+                v = v.astype(to)
+            d[k] = v
         return RawData(**d)
     
     def save(self, path: str):
