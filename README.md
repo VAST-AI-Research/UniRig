@@ -47,10 +47,10 @@ We are open-sourcing UniRig progressively. Please note the current status:
 *   ✅ **Code:** Implementation for skeleton and skinning prediction.
 *   ✅ **Model:** Skeleton & Skinning Prediction checkpoint trained on [**Articulation-XL2.0**](https://huggingface.co/datasets/Seed3D/Articulation-XL2.0). Available on [Hugging Face](https://huggingface.co/VAST-AI/UniRig).
 *   ✅ **Dataset:** Release of the **Rig-XL** and **VRoid** datasets used in the paper. We also filtered out 31 broken models in the training dataset which do not affect the performance of the final model.
+*   ✅ Training code.
 
 **Planned Future Releases:**
 *   ⏳ Full UniRig model checkpoints (Skeleton + Skinning) trained on Rig-XL/VRoid, replicating the paper's main results.
-*   ⏳ Training code.
 
 We appreciate your patience as we prepare these components for release. Follow [VAST-AI-Research](https://github.com/orgs/VAST-AI-Research) announcements for updates!
 
