@@ -215,7 +215,11 @@ The code may be a bit messed up — hopefully this will be addressed in a future
 
 <details>
 <summary><strong>📝 Custom Data Preparation</strong> (click to expand)</summary>
-⏳ Todo ...
+In `configs/data/rignet.yaml`, `input_dataset_dir` specifies the original model folder and `output_dataset_dir` specifies the output folder to store npz files. After changing them, run the following command to process the data:
+
+```bash
+bash launch/inference/preprocess.sh --config configs/data/<yourdata> --num_runs <number of threads to run>
+```
 </details>
 
 <details>

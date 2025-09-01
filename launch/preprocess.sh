@@ -5,7 +5,6 @@ require_suffix="fbx,FBX,dae,glb,gltf,vrm"
 num_runs=1
 force_override="true"
 faces_target_count=50000
-mesh_only="false"
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -15,7 +14,6 @@ while [[ "$#" -gt 0 ]]; do
         --force_override) force_override="$2"; shift ;;
         --faces_target_count) faces_target_count="$2"; shift ;;
         --time) time="$2"; shift ;;
-        --mesh_only) mesh_only="$2"; shift ;;
         *) echo "Unknown parameter: $1"; exit 1 ;;
     esac
     shift
