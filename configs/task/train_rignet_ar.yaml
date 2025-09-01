@@ -1,0 +1,54 @@
+mode: train
+debug: False
+experiment_name: &experiment_name train_rignet_ar
+# resume_from_checkpoint: experiments/train_rignet_ar/last.ckpt
+epochs: &epochs 400
+
+components:
+  data: rignet
+  tokenizer: tokenizer_rignet
+  transform: train_rignet_ar_transform
+  model: unirig_rignet
+  system: ar_train_rignet
+
+optimizer:
+  __target__: adamw
+  lr: 0.00025
+  weight_decay: 0.04
+
+scheduler:
+  __target__: one_cycle_lr
+  max_lr: 0.0001
+  pct_start: 0.1
+  anneal_strategy: cos
+  div_factor: 5.0
+  final_div_factor: 10.0
+  epochs: *epochs
+
+loss:
+  ce_loss: 1.0
+  dis_loss: 0
+
+trainer:
+  num_nodes: 1
+  devices: 4
+  precision: bf16-mixed
+  accelerator: gpu
+  strategy: ddp
+  num_sanity_val_steps: 0
+
+wandb:
+  name: *experiment_name
+  # entity: your_entity
+  # project: your_project
+  offline: False
+  tags: [*experiment_name, unirig]
+  # resume: must
+  # id: id_of_run
+
+checkpoint:
+  monitor: val_loss_j2j
+  filename: best-model-{epoch:02d}-{loss_sum:.4f}
+  save_top_k: 1
+  mode: min
+  save_last: True

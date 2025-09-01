@@ -1,0 +1,60 @@
+mode: train
+debug: False
+experiment_name: &experiment_name train_rignet_skin
+# resume_from_checkpoint: experiments/train_rignet_skin/last.ckpt
+epochs: &epochs 300
+
+components:
+  data: rignet_bs2
+  transform: train_rignet_skin_transform
+  model: unirig_skin
+  system: skin
+
+optimizer:
+  __target__: adamw
+  lr: 0.00005
+  weight_decay: 0.25
+
+scheduler:
+  __target__: one_cycle_lr
+  max_lr: 0.0001
+  pct_start: 0.1
+  anneal_strategy: cos
+  div_factor: 10.0
+  final_div_factor: 5.0
+  epochs: *epochs
+
+loss:
+  vertex_loss: 5.0
+  normalization_loss: 10.0
+  skin_l1_loss: 0.3
+  bce_loss: 1.0
+  skin_zero_l1_loss: 1.0
+  skin_non_zero_l1_loss: 1.0
+
+trainer:
+  num_nodes: 1
+  devices: 8
+  precision: bf16-mixed
+  max_epochs: *epochs
+  accelerator: gpu
+  strategy: fsdp
+  log_every_n_steps: 1
+  num_sanity_val_steps: 0
+  accumulate_grad_batches: 2
+
+wandb:
+  name: *experiment_name
+  # entity: your_entity
+  # project: your_project
+  offline: False
+  tags: [*experiment_name, unirig]
+  # resume: must
+  # id: id_of_run
+
+checkpoint:
+  monitor: val_loss_sum
+  filename: best-model-{epoch:02d}-{val_loss_sum:.4f}
+  save_top_k: 1
+  mode: min
+  save_last: True

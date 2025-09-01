@@ -1,0 +1,56 @@
+sampler_config: &sampler_config
+  method: mix
+  num_samples: 65536
+  vertex_samples: 4096
+
+tail_config: &tail_config
+  copy_joint_to_tail: False # Be careful ! If tail is important, keep it False !!!
+  connect_tail_to_unique_son: True
+
+order_config: &order_config
+  skeleton_path:
+    vroid: ./configs/skeleton/vroid.yaml
+    mixamo: ./configs/skeleton/mixamo.yaml
+
+train_transform_config:
+  augment_config:
+    augment_drop_part_config:
+      p: 0.5
+      rate: 0.5
+    augment_lbs_config:
+      random_pose_p: 0.5
+      random_pose_angle: 60.0
+    augment_linear_config:
+      static_rotate_z_p: 0.75
+      static_rotate_z: [90.0, 180.0, 270.0]
+      random_rotate_p: 0.5
+      random_rotate_angle: 90.0
+      random_flip_x_p: 0.0
+      random_flip_y_p: 0.0
+      random_flip_z_p: 0.0
+      random_scale_p: 0.5
+      random_scale: [0.33, 3.33]
+    augment_affine_config:
+      normalize_into: [-1.0, 1.0]
+      random_scale_p: 0.5
+      random_scale: [0.5, 1.0]
+      random_shift_p: 0.5
+      random_shift: [-0.1, 0.1]
+    augment_jitter_config:
+      vertex_sigma: 0.005
+      vertex_clip: 0.01
+      normal_sigma: 0.02
+      normal_clip: 0.02
+  tail_config: *tail_config
+  order_config: *order_config
+  sampler_config: *sampler_config
+
+validate_transform_config: &validate_transform_config
+  augment_config:
+    augment_affine_config:
+      normalize_into: [-1.0, 1.0]
+  tail_config: *tail_config
+  order_config: *order_config
+  sampler_config: *sampler_config
+
+predict_transform_config: *validate_transform_config

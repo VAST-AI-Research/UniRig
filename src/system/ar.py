@@ -12,6 +12,9 @@ from numpy import ndarray
 
 from .metrics import J2J, J2B, B2B
 
+from .optimizer import get_optimizer
+from .scheduler import get_scheduler
+
 from ..data.raw_data import RawData
 from ..data.order import OrderConfig, get_order
 from ..model.spec import ModelSpec
@@ -23,30 +26,74 @@ class ARSystem(L.LightningModule):
         self,
         steps_per_epoch: int,
         model: ModelSpec,
+        optimizer_config,
+        loss_config: Union[Dict[str, float], None],
         generate_kwargs: Dict={},
         output_path: Union[str, None]=None,
         record_res: Union[bool]=False,
         validate_cast: str='bfloat16',
         val_interval: Union[int, None]=None,
         val_start_from: Union[int, None]=None,
+        scheduler_config=None,
     ):
         super().__init__()
         self.save_hyperparameters(ignore="model")
         self.steps_per_epoch    = steps_per_epoch
         self.model              = model
+        self.optimizer_config   = optimizer_config
+        self.loss_config        = loss_config
         self.generate_kwargs    = generate_kwargs
         self.output_path        = output_path
         self.record_res         = record_res
         self.validate_cast      = validate_cast
         self.val_interval       = val_interval
         self.val_start_from     = val_start_from
+        self.scheduler_config   = scheduler_config
         
         if self.record_res:
             assert self.output_path is not None, "record_res is True, but output_path in ar is None"
+        
+        if loss_config is not None:
+            assert 'loss_sum' not in loss_config, 'loss cannot be named `loss_sum`'
+            assert 'val_loss_sum' not in loss_config, 'loss cannot be named `val_loss_sum`'
     
+    def forward(self, batch, validate: bool=False) -> Dict[str, Tensor]:
+        loss_dict = self.model.training_step(batch)
+        loss_sum = 0.
+        cls = batch['cls'][0] # guaranteed to be the same cls in dataloader
+        if validate:
+            for name in self.loss_config:
+                assert name in loss_dict, f'unspecified loss {name}'
+                self._validation_loss[f"val_{cls}_{name}"].append(loss_dict[name].item())
+                loss_sum += self.loss_config[name] * loss_dict[name]
+            self._validation_loss[f"val_{cls}_loss_sum"].append(loss_sum.item())
+            self.log('val_loss_sum', loss_sum, prog_bar=True, logger=True) # for monitor
+        else:
+            log_loss_dict = {}
+            for name in self.loss_config:
+                assert name in loss_dict, f"unspecified loss name: `{name}`"
+                loss_sum += self.loss_config[name] * loss_dict[name]
+                log_loss_dict[name] = loss_dict[name]
+            log_loss_dict['loss_sum'] = loss_sum
+            self.log_dict(log_loss_dict, prog_bar=True, logger=True)
+        self.log('batch_size', len(batch['cls']))
+        return loss_sum
     
-    def validation_step(self, batch, batch_idx, dataloader_idx=None):
-        pass
+    def training_step(self, batch, batch_idx, dataloader_idx=None) -> Tensor:
+        assert self.loss_config is not None
+
+        # record learning rate
+        if hasattr(self.trainer, 'optimizers') and self.trainer.optimizers:
+            optimizer = self.trainer.optimizers[0]
+            if 'lr' in optimizer.param_groups[0]:
+                current_lr = optimizer.param_groups[0]['lr']
+                self.log('lr', current_lr, prog_bar=True, logger=True)
+        
+        return self.forward(batch)
+    
+    def validation_step(self, batch, batch_idx, dataloader_idx=None) -> Tensor:
+        assert self.loss_config is not None
+        return self.forward(batch, validate=True)
     
     def on_validation_epoch_start(self):
         self._validation_loss = defaultdict(list)
@@ -55,7 +102,13 @@ class ARSystem(L.LightningModule):
         if self.record_res:
             os.makedirs(self.output_path, exist_ok=True)
     
+    def on_before_optimizer_step(self, optimizer):
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+    
     def on_validation_batch_end(self, outputs, batch, batch_idx, dataloader_idx=0):
+        if self.val_start_from is not None and self.val_interval is not None:
+            if self.current_epoch % self.val_interval != 0 or self.current_epoch < self.val_start_from:
+                return
         cls = batch['cls'][0] # guaranteed to be the same cls in dataloader
         B = batch['joints'].shape[0]
         origin_vertices = batch['origin_vertices']
@@ -178,6 +231,21 @@ class ARSystem(L.LightningModule):
         except Exception as e:
             print(str(e))
             return []
+    
+    def configure_optimizers(self) -> Dict:
+        _d = {}
+        optimizer = get_optimizer(model=self.model, config=self.optimizer_config)
+        if self.scheduler_config is not None and 'steps_per_epoch' not in self.scheduler_config:
+            self.scheduler_config['steps_per_epoch'] = self.steps_per_epoch
+        if self.scheduler_config is not None:
+            _d['lr_scheduler'] = {
+                'scheduler': get_scheduler(optimizer=optimizer, config=self.scheduler_config),
+                'interval': 'step',
+                'frequency': 1,
+            }
+        _d['optimizer'] = optimizer
+        
+        return _d
     
 class ARWriter(BasePredictionWriter):
     def __init__(

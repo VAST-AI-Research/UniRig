@@ -8,15 +8,24 @@ import numpy as np
 from torch import Tensor, FloatTensor, LongTensor
 from typing import Dict, Union, List, Literal
 from lightning.pytorch.callbacks import BasePredictionWriter
+from lightning.pytorch.utilities import grad_norm
 
 from numpy import ndarray
 from scipy.sparse import csr_matrix
 from scipy.spatial import cKDTree
 
+from .optimizer import get_optimizer
+from .scheduler import get_scheduler
+
 from ..data.order import OrderConfig, get_order
 from ..data.raw_data import RawSkin, RawData
 from ..data.exporter import Exporter
 from ..model.spec import ModelSpec
+
+def _get_item(x):
+    if isinstance(x, Tensor):
+        return x.item()
+    return x
 
 class SkinSystem(L.LightningModule):
     
@@ -28,6 +37,9 @@ class SkinSystem(L.LightningModule):
         record_res: Union[bool]=False,
         val_interval: Union[int, None]=None,
         val_start_from: Union[int, None]=None,
+        scheduler_config=None,
+        optimizer_config=None,
+        loss_config: Union[Dict[str, float], None]=None,
     ):
         super().__init__()
         self.save_hyperparameters(ignore="model")
@@ -37,9 +49,102 @@ class SkinSystem(L.LightningModule):
         self.record_res         = record_res
         self.val_interval       = val_interval
         self.val_start_from     = val_start_from
+        self.scheduler_config   = scheduler_config
+        self.optimizer_config   = optimizer_config
+        self.loss_config        = loss_config
         
         if self.record_res:
             assert self.output_path is not None, "record_res is True, but output_path in skin is None"
+        
+        if loss_config is not None:
+            assert 'loss_sum' not in loss_config, 'loss cannot be named `loss_sum`'
+            assert 'val_loss_sum' not in loss_config, 'loss cannot be named `val_loss_sum`'
+    
+    def on_validation_batch_start(self, batch, batch_idx: int, dataloader_idx: int = 0):
+        if self.record_res:
+            os.makedirs(self.output_path, exist_ok=True)
+
+    def on_before_optimizer_step(self, optimizer):
+        # Compute the 2-norm for each layer
+        # If using mixed precision, the gradients are already unscaled here
+        norms = grad_norm(self.model, norm_type=2)
+        total_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0) 
+        self.log_dict(norms, sync_dist=False)
+
+    def forward(self, batch, validate: bool=False) -> Dict[str, Tensor]:
+        loss_dict = self.model.training_step(batch)
+        loss_sum = 0.
+        cls = batch['cls'][0] # guaranteed to be the same cls in dataloader
+        if validate:
+            for name in self.loss_config:
+                assert name in loss_dict, f'unspecified loss {name}'
+                self._validation_loss[f"val_{cls}_{name}"].append(_get_item(loss_dict[name]))
+                loss_sum += self.loss_config[name] * loss_dict[name]
+            self._validation_loss[f"val_{cls}_loss_sum"].append(_get_item(loss_sum))
+            self._validation_loss['val_loss_sum'].append(_get_item(loss_sum))
+            
+            if self.record_res:
+                vertices_gt = loss_dict['vertices_gt']
+                vertices_pred = loss_dict['vertices_pred']
+                path = batch['path'][0]
+                vertices_gt = vertices_gt[0].detach().cpu().numpy()
+                vertices_pred = vertices_pred[0].detach().cpu().numpy()
+                indices = np.random.permutation(len(vertices_gt))[:16384]
+                exporter = Exporter()
+                exporter._export_pc(vertices=vertices_gt[indices], path=f"{self.output_path}/{self.current_epoch}/{path}/vertices_gt.obj")
+                exporter._export_pc(vertices=vertices_pred[indices], path=f"{self.output_path}/{self.current_epoch}/{path}/vertices_pred.obj")
+        else:
+            log_loss_dict = {}
+            for name in self.loss_config:
+                assert name in loss_dict, f"unspecified loss name: `{name}`"
+                if self.loss_config[name] != 0:
+                    loss_sum += self.loss_config[name] * loss_dict[name]
+                log_loss_dict[name] = loss_dict[name]
+            log_loss_dict['loss_sum'] = loss_sum
+            self.log_dict(log_loss_dict, prog_bar=True, logger=True, sync_dist=False)
+        self.log('batch_size', len(batch['cls'])) # must explicitly report batch_size to make lr scheduler correct
+        return loss_sum
+    
+    def training_step(self, batch, batch_idx, dataloader_idx=None) -> Tensor:
+        assert self.loss_config is not None
+
+        # record learning rate
+        if hasattr(self.trainer, 'optimizers') and self.trainer.optimizers:
+            optimizer = self.trainer.optimizers[0]
+            if 'lr' in optimizer.param_groups[0]:
+                current_lr = optimizer.param_groups[0]['lr']
+                self.log('lr', current_lr, prog_bar=True, logger=True)
+        self.log('epoch', self.current_epoch, prog_bar=False, logger=True)
+
+        return self.forward(batch)
+    
+    def validation_step(self, batch, batch_idx, dataloader_idx=None) -> Tensor:
+        assert self.loss_config is not None
+        return self.forward(batch, validate=True)
+    
+    def on_validation_epoch_start(self):
+        self._validation_loss = defaultdict(list)
+    
+    def on_validation_batch_start(self, batch, batch_idx, dataloader_idx=0):
+        torch.cuda.empty_cache()
+        pass
+    
+    def on_validation_batch_end(self, outputs, batch, batch_idx, dataloader_idx=0):
+        pass
+    
+    def on_validation_epoch_end(self):
+        # calculate per class validation loss
+        for (cls, d) in self._validation_loss.items():
+            sum = 0.
+            for x in d:
+                sum += x
+            if len(d) != 0:
+                sum /= len(d)
+            else:
+                sum = -1.
+            self._validation_loss[cls] = sum
+        d = dict(sorted(self._validation_loss.items()))
+        self.log_dict(d, prog_bar=False, logger=True, sync_dist=True)
     
     def predict_step(self, batch, batch_idx, dataloader_idx=None):
         res = self.model.predict_step(batch)
@@ -53,6 +158,21 @@ class SkinSystem(L.LightningModule):
             return res
         else:
             assert 0, f"expect type of prediction from {self.model.__class__} to be a list or dict, found: {type(res)}"
+    
+    def configure_optimizers(self) -> Dict:
+        _d = {}
+        optimizer = get_optimizer(model=self.model, config=self.optimizer_config)
+        if self.scheduler_config is not None and 'steps_per_epoch' not in self.scheduler_config:
+            self.scheduler_config['steps_per_epoch'] = self.steps_per_epoch
+        if self.scheduler_config is not None:
+            _d['lr_scheduler'] = {
+                'scheduler': get_scheduler(optimizer=optimizer, config=self.scheduler_config),
+                'interval': 'step',
+                'frequency': 1,
+            }
+        _d['optimizer'] = optimizer
+        
+        return _d
 
 class SkinWriter(BasePredictionWriter):
     def __init__(

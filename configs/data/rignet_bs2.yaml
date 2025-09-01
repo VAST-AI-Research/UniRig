@@ -3,14 +3,14 @@ output_dataset_dir: &output_dataset_dir ./dataset_clean
 
 train_dataset_config:
   shuffle: True
-  batch_size: 12
-  num_workers: 24
+  batch_size: 2
+  num_workers: 8
   pin_memory: True
   persistent_workers: True
   datapath_config:
     input_dataset_dir: *output_dataset_dir
     use_prob: True
-    num_files: 50000
+    num_files: 4000
     data_path:
       rignet: [
         [./datalist/rignet_train.txt, 1.0],
