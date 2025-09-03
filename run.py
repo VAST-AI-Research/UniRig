@@ -5,6 +5,7 @@ import os
 import torch
 import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint, Callback
+from lightning.pytorch.loggers import WandbLogger
 from typing import List
 from math import ceil
 import numpy as np
@@ -63,7 +64,7 @@ if __name__ == "__main__":
     
     task = load('task', args.task)
     mode = task.mode
-    assert mode in ['predict', 'validate']
+    assert mode in ['train', 'predict', 'validate']
     
     if args.input is not None or args.input_dir is not None:
         assert args.output_dir is not None or args.output is not None, 'output or output_dir must be specified'
@@ -96,6 +97,16 @@ if __name__ == "__main__":
     data_name = task.components.get('data_name', 'raw_data.npz')
     if args.data_name is not None:
         data_name = args.data_name
+        
+    # get train dataset
+    train_dataset_config = data_config.get('train_dataset_config', None)
+    if train_dataset_config is not None:
+        train_dataset_config = DatasetConfig.parse(config=train_dataset_config)
+    
+    # get train transform
+    train_transform_config = transform_config.get('train_transform_config', None)
+    if train_transform_config is not None:
+        train_transform_config = TransformConfig.parse(config=train_transform_config)
         
     # get predict dataset
     predict_dataset_config = data_config.get('predict_dataset_config', None)
@@ -132,9 +143,11 @@ if __name__ == "__main__":
     # set data
     data = UniRigDatasetModule(
         process_fn=None if model is None else model._process_fn,
+        train_dataset_config=train_dataset_config,
         predict_dataset_config=predict_dataset_config,
         predict_transform_config=predict_transform_config,
         validate_dataset_config=validate_dataset_config,
+        train_transform_config=train_transform_config,
         validate_transform_config=validate_transform_config,
         tokenizer_config=tokenizer_config,
         debug=False,
@@ -168,6 +181,12 @@ if __name__ == "__main__":
     # get trainer
     trainer_config = task.get('trainer', {})
     
+    # get scheduler
+    scheduler_config = task.get('scheduler', None)
+    
+    optimizer_config = task.get('optimizer', None)
+    loss_config = task.get('loss', None)
+    
     # get system
     system_config = task.components.get('system', None)
     if system_config is not None:
@@ -175,23 +194,71 @@ if __name__ == "__main__":
         system = get_system(
             **system_config,
             model=model,
-            steps_per_epoch=1,
+            optimizer_config=optimizer_config,
+            loss_config=loss_config,
+            scheduler_config=scheduler_config,
+            steps_per_epoch=1 if train_dataset_config is None else 
+            ceil(len(data.train_dataloader()) // trainer_config.devices // trainer_config.num_nodes),
         )
     else:
         system = None
     
-    logger = None
+    wandb_config = task.get('wandb', None)
+    if wandb_config is not None:
+        logger = WandbLogger(
+            config={
+                'task': task,
+                'data': data_config,
+                'tokenizer': tokenizer_config,
+                'train_dataset_config': train_dataset_config,
+                'validate_dataset_config': validate_dataset_config,
+                'predict_dataset_config': predict_dataset_config,
+                'train_transform_config': train_transform_config,
+                'validate_transform_config': validate_transform_config,
+                'predict_transform_config': predict_transform_config,
+                'model_config': model_config,
+                'optimizer_config': optimizer_config,
+                'system_config': system_config,
+                'checkpoint_config': checkpoint_config,
+                'writer_config': writer_config,
+            },
+            log_model=True,
+            **wandb_config
+        )
+        if logger.experiment.id is not None:
+            print(f"\033[92mWandbLogger started: {logger.experiment.id}\033[0m")
+            # Get the run URL using wandb.run.get_url() which is more reliable
+            run_url = logger.experiment.get_url() if hasattr(logger.experiment, 'get_url') else logger.experiment.url
+            print(f"\033[92mWandbLogger url: {run_url}\033[0m")
+        else:
+            print("\033[91mWandbLogger failed to start\033[0m")
+    else:
+        logger = None
 
     # set ckpt path
     resume_from_checkpoint = task.get('resume_from_checkpoint', None)
     resume_from_checkpoint = download(resume_from_checkpoint)
+    if trainer_config.get('strategy', None) == "fsdp":
+        strategy = FSDPStrategy(
+            # Enable activation checkpointing on these layers
+            auto_wrap_policy={
+                torch.nn.MultiheadAttention
+            },
+            activation_checkpointing_policy={
+                torch.nn.Linear,
+                torch.nn.MultiheadAttention,
+            },
+        )
+        trainer_config['strategy'] = strategy
     trainer = L.Trainer(
         callbacks=callbacks,
         logger=logger,
         **trainer_config,
     )
     
-    if mode == 'predict':
+    if mode == 'train':
+        trainer.fit(system, datamodule=data, ckpt_path=resume_from_checkpoint)
+    elif mode == 'predict':
         assert resume_from_checkpoint is not None, 'expect resume_from_checkpoint in task'
         trainer.predict(system, datamodule=data, ckpt_path=resume_from_checkpoint, return_predictions=False)
     elif mode == 'validate':

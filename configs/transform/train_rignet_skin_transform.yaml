@@ -2,7 +2,7 @@ random_pose_angle: &random_pose_angle 30.0
 
 sampler_config: &sampler_config
   method: mix
-  num_samples: 32768
+  num_samples: 16384
   vertex_samples: 8192
 
 tail_config: &tail_config
@@ -24,7 +24,7 @@ vertex_group_config: &vertex_group_config
       grid_query: 7
       vertex_query: 1
       grid_weight: 3.0
-      backend: pyrender
+      backend: pyrender # change this to open3d if you encounter issues
   
 train_transform_config:
   augment_config:
