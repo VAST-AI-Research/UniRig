@@ -139,16 +139,17 @@ def get_arranged_bones(armature):
         Q = _c + Q
     return arranged_bones
 
-def process_mesh(arranged_bones):
+def process_mesh(arranged_bones=None):
     meshes = []
     for v in bpy.data.objects:
         if v.type == 'MESH':
             meshes.append(v)
     
-    index = {}
-    # update index first
-    for (id, pbone) in enumerate(arranged_bones):
-        index[pbone.name] = id
+    if arranged_bones is not None:
+        index = {}
+        # update index first
+        for (id, pbone) in enumerate(arranged_bones):
+            index[pbone.name] = id
     
     _dict_mesh = {}
     _dict_skin = {}
@@ -272,6 +273,8 @@ def process_mesh(arranged_bones):
         ], axis=0)
     else:
         skin = None
+    if arranged_bones is None:
+        return vertex, faces
     return vertex, faces, skin
 
 def process_armature(
