@@ -427,6 +427,7 @@ def parse():
     return parser.parse_args()
 
 def transfer(source: str, target: str, output: str, add_root: bool=False):
+    clean_bpy()
     try:
         armature = load(filepath=source, return_armature=True)
         assert armature is not None

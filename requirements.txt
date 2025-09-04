@@ -13,3 +13,4 @@ trimesh
 open3d
 pyrender
 huggingface_hub
+wandb

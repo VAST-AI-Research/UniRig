@@ -1,0 +1,88 @@
+random_pose_angle: &random_pose_angle 30.0
+
+sampler_config: &sampler_config
+  method: mix
+  num_samples: 16384
+  vertex_samples: 8192
+
+tail_config: &tail_config
+  copy_joint_to_tail: False
+  connect_tail_to_unique_son: True
+
+order_config: &order_config
+  skeleton_path:
+    vroid: ./configs/skeleton/vroid.yaml
+    mixamo: ./configs/skeleton/mixamo.yaml
+
+vertex_group_config: &vertex_group_config
+  names: ['skin', 'voxel_skin']
+  kwargs:
+    voxel_skin:
+      grid: 196
+      alpha: 0.5
+      link_dis: 0.00001
+      grid_query: 7
+      vertex_query: 1
+      grid_weight: 3.0
+      backend: pyrender # change this to open3d if you encounter issues
+  
+train_transform_config:
+  augment_config:
+    augment_joint_discrete_config:
+      p: 0.5
+      discrete: 256
+      continuous_range: [-1.0, 1.0]
+    augment_joint_perturb_config:
+      p: 0.5
+      sigma: 0.0078125
+      clip: 0.0078125
+    augment_collapse_config:
+      p: 0.05
+      rate: 0.5
+    augment_lbs_config:
+      pose_for_skin: true
+      random_pose_p: 0.05
+      random_pose_angle: *random_pose_angle
+    augment_linear_config:
+      static_rotate_z_p: 0.05
+      static_rotate_z: [90.0, 180.0, 270.0]
+      random_flip_x_p: 0.0
+      random_flip_y_p: 0.0
+      random_flip_z_p: 0.0
+    augment_affine_config:
+      normalize_into: [-1.0, 1.0]
+      random_scale_p: 0.05
+      random_scale: [0.85, 1.0]
+      random_shift_p: 0.0
+      random_shift: [0.0, 0.0]
+    augment_jitter_config:
+      vertex_sigma: 0.0001
+      vertex_clip: 0.0002
+      normal_sigma: 0.01
+      normal_clip: 0.01
+  tail_config: *tail_config
+  order_config: *order_config
+  vertex_group_config: *vertex_group_config
+  sampler_config: *sampler_config
+
+validate_transform_config:
+  augment_config:
+    augment_lbs_config:
+      pose_for_skin: true
+      random_pose_p: 0.0
+      random_pose_angle: *random_pose_angle
+    augment_affine_config:
+      normalize_into: [-1.0, 1.0]
+  tail_config: *tail_config
+  order_config: *order_config
+  vertex_group_config: *vertex_group_config
+  sampler_config: *sampler_config
+
+predict_transform_config:
+  augment_config:
+    augment_affine_config:
+      normalize_into: [-1.0, 1.0]
+  tail_config: *tail_config
+  order_config: *order_config
+  vertex_group_config: *vertex_group_config
+  sampler_config: *sampler_config

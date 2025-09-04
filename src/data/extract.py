@@ -139,13 +139,24 @@ def get_arranged_bones(armature):
         Q = _c + Q
     return arranged_bones
 
-def process_mesh():
+def process_mesh(arranged_bones=None):
     meshes = []
     for v in bpy.data.objects:
         if v.type == 'MESH':
             meshes.append(v)
     
+    if arranged_bones is not None:
+        index = {}
+        # update index first
+        for (id, pbone) in enumerate(arranged_bones):
+            index[pbone.name] = id
+    
     _dict_mesh = {}
+    _dict_skin = {}
+    if arranged_bones is not None:
+        total_bones = len(arranged_bones)
+    else:
+        total_bones = None
     for obj in meshes:
         m = np.array(obj.matrix_world)
         matrix_world_rot = m[:3, :3]
@@ -154,6 +165,10 @@ def process_mesh():
         total_vertices = len(obj.data.vertices)
         vertex = np.zeros((4, total_vertices))
         vertex_normal = np.zeros((total_vertices, 3))
+        if total_bones is not None:
+            skin_weight = np.zeros((total_vertices, total_bones))
+        else:
+            skin_weight = None
         obj_verts = obj.data.vertices
         faces = []
         normals = []
@@ -196,7 +211,24 @@ def process_mesh():
             for (second, third) in zip(loop[1:], loop[2:]):
                 faces.append((first + 1, second + 1, third + 1)) # the cursed +1
                 normals.append(rot @ normal) # and the cursed normal of BLENDER
-
+        
+        obj_group_names = [g.name for g in obj.vertex_groups]
+        if arranged_bones is not None:
+            for bone in arranged_bones:
+                if bone.name not in obj_group_names:
+                    continue
+                gidx = obj.vertex_groups[bone.name].index
+                bone_verts = [v for v in obj_verts if gidx in [g.group for g in v.groups]]
+                for v in bone_verts:
+                    which = [id for id in range(len(v.groups)) if v.groups[id].group==gidx]
+                    w = v.groups[which[0]].weight
+                    assert(0 <= v.index < total_vertices)
+                    vv = rot @ v.co
+                    vv = np.array(vv) + matrix_world_bias
+                    vertex[0:3, v.index] = vv
+                    vertex[3][v.index] = 1 # affine coordinate
+                    skin_weight[v.index, index[bone.name]] = w
+        
         correct_faces = []
         for (i, face) in enumerate(faces):
             normal = normals[i]
@@ -216,6 +248,10 @@ def process_mesh():
                 'vertex': vertex,
                 'face': correct_faces,
             }
+            if skin_weight is not None:
+                _dict_skin[obj.name] = {
+                    'skin': skin_weight,
+                }
     
     vertex = np.concatenate([_dict_mesh[name]['vertex'] for name in _dict_mesh], axis=1)[:3, :].transpose()
     
@@ -231,7 +267,15 @@ def process_mesh():
         now_bias += _dict_mesh[name]['vertex'].shape[1]
         tot += f.shape[0]
     
-    return vertex, faces
+    if len(_dict_skin) > 0:
+        skin = np.concatenate([
+            _dict_skin[d]['skin'] for d in _dict_skin
+        ], axis=0)
+    else:
+        skin = None
+    if arranged_bones is None:
+        return vertex, faces
+    return vertex, faces, skin
 
 def process_armature(
     armature,
@@ -290,6 +334,7 @@ def save_raw_data(
     path: str,
     vertices: ndarray,
     faces: ndarray,
+    skin: Union[ndarray, None],
     joints: Union[ndarray, None],
     tails: Union[ndarray, None],
     parents: Union[List[Union[int, None]], None],
@@ -312,6 +357,15 @@ def save_raw_data(
         new_joints = np.array(joints, dtype=np.float32)
     else:
         new_joints = None
+    if skin is not None:
+        new_skin = np.array(skin, dtype=np.float32)
+        # sample nearest
+        tree = KDTree(vertices)
+        distances, indices = tree.query(new_vertices)
+        new_skin = new_skin[indices]
+    else:
+        new_skin = None
+    
     raw_data = RawData(
         vertices=new_vertices,
         vertex_normals=new_vertex_normals,
@@ -319,7 +373,7 @@ def save_raw_data(
         face_normals=new_face_normals,
         joints=new_joints,
         tails=tails,
-        skin=None,
+        skin=new_skin,
         no_skin=None,
         parents=parents,
         names=names,
@@ -364,11 +418,14 @@ def extract_builtin(
             print('save to:', output_dir)
             os.makedirs(output_dir, exist_ok=True)
             
-            vertices, faces = process_mesh()
             if armature is not None:
                 arranged_bones = get_arranged_bones(armature)
+            else:
+                arranged_bones = None
+            vertices, faces, skin = process_mesh(arranged_bones)
+            
+            if armature is not None:
                 joints, tails, parents, names, matrix_local = process_armature(armature, arranged_bones)
-                
             else:
                 joints = None
                 tails = None
@@ -381,6 +438,7 @@ def extract_builtin(
                 path=save_file,
                 vertices=vertices,
                 faces=faces-1,
+                skin=skin,
                 joints=joints,
                 tails=tails,
                 parents=parents,

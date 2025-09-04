@@ -285,6 +285,34 @@ class Asset(Exporter):
         self.names          = new_names
         self.matrix_local   = matrix_local
     
+    def drop_part(self, keep: List[str]):
+        assert self.skin is not None
+        name_to_id = {n: i for (i, n) in enumerate(self.names)}
+        mask = np.zeros(self.N, dtype=bool)
+        for name in keep:
+            if name in name_to_id:
+                mask[self.skin[:, name_to_id[name]] > 1e-5] = True
+        if len(keep) * 4 < len(self.names):
+            return
+        if np.all(~mask):
+            return
+        indices = np.where(mask)[0]
+        mask = np.all(np.isin(self.faces, indices), axis=1)
+        if np.all(~mask):
+            return
+        old_to_new = -np.ones(self.N, dtype=np.int64)
+        self.vertices = self.vertices[indices]
+        self.vertex_normals = self.vertex_normals[indices]
+        new_faces = self.faces[mask]
+        old_to_new[indices] = np.arange(len(indices))
+        new_faces = old_to_new[new_faces]
+
+        self.faces = new_faces
+        if self.face_normals is not None:
+            self.face_normals = self.face_normals[mask]
+        self.skin = self.skin[indices]
+        self.collapse(keep=keep)
+    
     @staticmethod
     def from_raw_data(
         raw_data: RawData,

@@ -97,6 +97,7 @@ class UniRigAR(ModelSpec):
         output = self.transformer(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
+            use_cache=False,
         )
         
         # (B, L, vocab_size)

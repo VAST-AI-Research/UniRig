@@ -47,10 +47,10 @@ We are open-sourcing UniRig progressively. Please note the current status:
 *   ✅ **Code:** Implementation for skeleton and skinning prediction.
 *   ✅ **Model:** Skeleton & Skinning Prediction checkpoint trained on [**Articulation-XL2.0**](https://huggingface.co/datasets/Seed3D/Articulation-XL2.0). Available on [Hugging Face](https://huggingface.co/VAST-AI/UniRig).
 *   ✅ **Dataset:** Release of the **Rig-XL** and **VRoid** datasets used in the paper. We also filtered out 31 broken models in the training dataset which do not affect the performance of the final model.
+*   ✅ Training code.
 
 **Planned Future Releases:**
 *   ⏳ Full UniRig model checkpoints (Skeleton + Skinning) trained on Rig-XL/VRoid, replicating the paper's main results.
-*   ⏳ Training code.
 
 We appreciate your patience as we prepare these components for release. Follow [VAST-AI-Research](https://github.com/orgs/VAST-AI-Research) announcements for updates!
 
@@ -80,6 +80,8 @@ We appreciate your patience as we prepare these components for release. Follow [
     python -m pip install torch_scatter torch_cluster -f https://data.pyg.org/whl/torch-{your-torch-version}+{your-cuda-version}.html --no-cache-dir
     python -m pip install numpy==1.26.4
     ```
+  
+  `spconv` is installed from [this repo](https://github.com/traveller59/spconv), `torch_scatter` and `torch_cluster` are installed from [this site](`https://pytorch-geometric.readthedocs.io/en/latest/install/installation.html`). Also, there is a high chance that you will encounter flash_attn installation error, go to its [original repo](https://github.com/Dao-AILab/flash-attention) and follow its installation guide.
 
 5.  **Download Model Checkpoint:**
     The currently available skeleton prediction model checkpoint is hosted on Hugging Face and will typically be downloaded automatically by the provided scripts/functions.
@@ -193,6 +195,8 @@ bash launch/inference/merge.sh --source results/giraffe_skeleton.fbx --target ex
 bash launch/inference/merge.sh --source results/giraffe_skin.fbx --target examples/giraffe.glb --output results/giraffe_rigged.glb
 ```
 
+Note that there will be no skinning if you try to merge a skeleton file(`giraffe_skeleton.fbx`). Use the predicted skinning result(`giraffe_skin.fbx`) instead!
+
 ### Rignet Dataset Validation
 
 Validate the metrics mentioned in the paper. This is for academic usage.
@@ -207,13 +211,174 @@ python run.py --task=configs/task/validate_rignet.yaml
 
 To export skeleton & mesh, set `record_res` to `True` in the config file `configs/system/ar_validate_rignet.yaml`.
 
+## Train from Scratch
+
+The code may be a bit messed up — hopefully this will be addressed in a future update from the VAST team.
+
+<details>
+<summary><strong>📝 Custom Data Preparation</strong> (click to expand)</summary>
+In `configs/data/rignet.yaml`, `input_dataset_dir` specifies the original model folder and `output_dataset_dir` specifies the output folder to store npz files. After changing them, run the following command to process the data:
+
+```bash
+bash launch/inference/preprocess.sh --config configs/data/<yourdata> --num_runs <number of threads to run>
+```
+</details>
+
+<details>
+<summary><strong>🚅 Train Skeleton Model</strong> (click to expand)</summary>
+
+This section provides the configuration files needed to reproduce the results trained on the Rignet dataset, as described in the paper. Several configuration components are required:
+
+1. data:
+
+    To tell dataloader where and how to load. Defined in `configs/data/rignet.yaml`. The program will try to find data in `<output_dataset_dir>/<relative path in datalist>/raw_data.npz`, so you need to put processed dataset under `dataset_clean`.
+
+2. transform:
+
+    Data augmentations. Defined in `configs/transform/train_rignet_ar_transform.yaml`.
+
+    For details on the augmentation operations, refer to `src/data/augment.py`.
+
+3. tokenizer:
+
+    To tell model how to encode skeletons. Defined in `configs/tokenizer/tokenizer_rignet.yaml`
+
+4. system:
+
+    Control on training process. Defined in `configs/system/ar_train_rignet.yaml`. In this config, the training process will export generation results after 70 epochs every 4 epochs. You can also change `sampling methods` in it.
+
+5. model:
+
+    Defined in `configs/model/unirig_rignet.yaml`, and you can change base transformer model here. 
+
+    *Note: `n_positions` must > sum of the conditional embedding length and the maximum number of skeleton tokens.*
+
+6. task:
+
+    The final training config. Defined in `configs/task/train_rignet_ar.yaml`. This integrates all components above, and also configures `loss`, `optimizer`, and `scheduler`. You can find optimizers and schedulers initialization in `src/system/optimizer.py` and `src/system/scheduler.py`.
+    
+    The `trainer` section controls GPU/node usage (multi-node training is not tested).
+    
+    The `wandb` section enables logging with Weights & Biases, and the `checkpoint` section configures the checkpoint saving strategy.
+
+    You can comment out `wandb` and `checkpoint` if you don’t need logging or final model checkpoints.
+
+During training, the checkpoints will be saved to `experiments/<experimentname>`.
+
+To run the training, use the following command:
+
+```bash
+python run.py --task=configs/task/train_rignet_ar.yaml
+```
+
+The best results typically appear around epoch 120, after approximately 18 hours of training on 4× RTX 4090 GPUs.
+
+It is also noted that in ar training, lower validation CE loss does NOT necessarily imply better skeleton generation results. This can be verified in the following picture:
+
+![alt text](assets/doc/ar_training.png)
+
+After training, change `resume_from_checkpoint` to path of the final model to see the results in the inference task. Create a new inference task named `rignet_ar_inference_scratch.yaml` in `configs/task`:
+
+```yaml
+mode: predict # change it to predict
+debug: False
+experiment_name: test
+resume_from_checkpoint: experiments/train_rignet_ar/last.ckpt # final ckpt path
+
+components:
+  data: quick_inference # inference data
+  system: ar_inference_articulationxl # any system without `val_interval` or `val_start_from` should be ok
+  tokenizer: tokenizer_rignet # must be the same in training
+  transform: train_rignet_ar_transform # only need to keep the normalization method
+  model: unirig_rignet # must be the same in training
+  data_name: raw_data.npz
+
+writer:
+  __target__: ar
+  output_dir: ~
+  add_num: False
+  repeat: 1
+  export_npz: predict_skeleton
+  export_obj: skeleton
+  export_fbx: skeleton
+
+trainer:
+  max_epochs: 1
+  num_nodes: 1
+  devices: 1
+  precision: bf16-mixed
+  accelerator: gpu
+  strategy: auto
+```
+
+and run:
+
+```bash
+bash launch/inference/generate_skeleton.sh --input examples/giraffe.glb --output examples/giraffe_skeleton.fbx --skeleton_task configs/task/rignet_ar_inference_scratch.yaml 
+```
+
+</details>
+
+<details>
+<summary><strong>🚅 Train Skin Model</strong> (click to expand)</summary>
+The process of skinning training is very similar to skeleton training. You can modify `configs/task/train_rignet_skin.yaml`, and run:
+
+```bash
+python run.py --task=configs/task/train_rignet_skin.yaml
+```
+
+If you run into pyrender related issues, change `vertex_group_confis/kwargs/voxel_skin/backend` to `open3d` in `configs/transform/train_rignet_skin_transform`. This also means you need to change it in prediction mode.
+
+Note that this task takes up at least 60GB memory on a single gpu, even with `batch_size=2` in data config. You can change `batch_size` to 1, increase `accumulate_grad_batches` in the task, and decrease `num_train_vertex` in `configs/model/unirig_skin.yaml` for less memory requirement.
+
+After training, change `resume_from_checkpoint` to path of the final model to see the results in the inference task. Create a new inference task named `rignet_skin_inference_scratch.yaml` in `configs/task`:
+
+```yaml
+mode: predict # change it to predict
+debug: False
+experiment_name: test
+resume_from_checkpoint: experiments/train_rignet_skin/last.ckpt # final ckpt path
+
+components:
+  data: quick_inference # inference data
+  system: skin
+  transform: inference_skin_transform # do not need skin vertex_group
+  model: unirig_skin # must be the same in training
+  data_name: raw_data.npz
+
+writer:
+  __target__: skin
+  output_dir: ~
+  add_num: False
+  repeat: 1
+  save_name: predict
+  export_npz: predict_skin
+  export_fbx: result_fbx
+
+trainer:
+  max_epochs: 1
+  num_nodes: 1
+  devices: 1
+  precision: bf16-mixed
+  accelerator: gpu
+  strategy: auto
+  inference_mode: True
+```
+
+and run:
+
+```bash
+bash launch/inference/generate_skin.sh --input examples/skeleton/giraffe.fbx --output results/giraffe_skin.fbx --skin_task configs/task/rignet_skin_inference_scratch.yaml 
+```
+</details>
+
 ## Models
 
 Available models are hosted on the: https://huggingface.co/VAST-AI/UniRig
 
 ## System Requirements
 
-- CUDA-enabled GPU with at least 8GB VRAM
+- For generation: CUDA-enabled GPU with at least 8GB VRAM
 
 ## Citation
 
