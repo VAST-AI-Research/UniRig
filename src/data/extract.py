@@ -274,7 +274,7 @@ def process_mesh(arranged_bones=None):
     else:
         skin = None
     if arranged_bones is None:
-        return vertex, faces
+        return vertex, faces, None
     return vertex, faces, skin
 
 def process_armature(
