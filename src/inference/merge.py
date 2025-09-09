@@ -434,9 +434,12 @@ def transfer(source: str, target: str, output: str, add_root: bool=False):
     except Exception as e:
         print(f"failed to load {source}")
         return
-    vertices, faces = process_mesh()
+
+    vertices, faces, skin = process_mesh()
     arranged_bones = get_arranged_bones(armature)
-    skin = get_skin(arranged_bones)
+    if skin is None:
+        skin = get_skin(arranged_bones)
+
     joints, tails, parents, names, matrix_local = process_armature(armature, arranged_bones)
     merge(
         path=target,
