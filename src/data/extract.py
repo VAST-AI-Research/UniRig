@@ -266,15 +266,13 @@ def process_mesh(arranged_bones=None):
         faces[tot:tot+f.shape[0]] = f + now_bias
         now_bias += _dict_mesh[name]['vertex'].shape[1]
         tot += f.shape[0]
-    
-    if len(_dict_skin) > 0:
+
+    skin = None
+    if arranged_bones is not None and len(_dict_skin) > 0:
         skin = np.concatenate([
             _dict_skin[d]['skin'] for d in _dict_skin
         ], axis=0)
-    else:
-        skin = None
-    if arranged_bones is None:
-        return vertex, faces
+
     return vertex, faces, skin
 
 def process_armature(
