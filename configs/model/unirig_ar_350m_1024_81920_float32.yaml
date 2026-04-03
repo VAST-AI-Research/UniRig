@@ -6,7 +6,7 @@ llm:
   hidden_size: 1024
   word_embed_proj_dim: 1024
   do_layer_norm_before: True
-  _attn_implementation: flash_attention_2
+  _attn_implementation: eager
 
 mesh_encoder:
   __target__: michelangelo_encoder

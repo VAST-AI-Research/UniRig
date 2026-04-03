@@ -1,4 +1,18 @@
 # merge texture
+
+# === Auto-activate UniRig venv (Windows/Linux) ===
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+UNIRIG_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+if [ -f "$UNIRIG_ROOT/.venv/Scripts/activate" ]; then
+    source "$UNIRIG_ROOT/.venv/Scripts/activate"
+elif [ -f "$UNIRIG_ROOT/.venv/bin/activate" ]; then
+    source "$UNIRIG_ROOT/.venv/bin/activate"
+fi
+export PYTHONPATH="$UNIRIG_ROOT:$PYTHONPATH"
+export ATTN_IMPLEMENTATION=eager
+cd "$UNIRIG_ROOT"
+# ================================================
+
 require_suffix="obj,fbx,FBX,dae,glb,gltf,vrm"
 source=""
 target=""
@@ -14,6 +28,12 @@ while [[ "$#" -gt 0 ]]; do
     esac
     shift
 done
+
+# === Fix Windows backslash paths ===
+if [ -n "$source" ]; then source=$(echo "$source" | sed 's|\\|/|g'); fi
+if [ -n "$target" ]; then target=$(echo "$target" | sed 's|\\|/|g'); fi
+if [ -n "$output" ]; then output=$(echo "$output" | sed 's|\\|/|g'); fi
+# ===================================
 
 cmd=" \
     python -m src.inference.merge \

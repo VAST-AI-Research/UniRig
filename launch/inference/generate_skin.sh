@@ -1,4 +1,18 @@
 # generate skin
+
+# === Auto-activate UniRig venv (Windows/Linux) ===
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+UNIRIG_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+if [ -f "$UNIRIG_ROOT/.venv/Scripts/activate" ]; then
+    source "$UNIRIG_ROOT/.venv/Scripts/activate"
+elif [ -f "$UNIRIG_ROOT/.venv/bin/activate" ]; then
+    source "$UNIRIG_ROOT/.venv/bin/activate"
+fi
+export PYTHONPATH="$UNIRIG_ROOT:$PYTHONPATH"
+export ATTN_IMPLEMENTATION=eager
+cd "$UNIRIG_ROOT"
+# ================================================
+
 config="configs/data/quick_inference.yaml"
 require_suffix="obj,fbx,FBX,dae,glb,gltf,vrm"
 num_runs=1
@@ -27,6 +41,13 @@ while [[ "$#" -gt 0 ]]; do
     esac
     shift
 done
+
+# === Fix Windows backslash paths ===
+if [ -n "$input" ]; then input=$(echo "$input" | sed 's|\\|/|g'); fi
+if [ -n "$output" ]; then output=$(echo "$output" | sed 's|\\|/|g'); fi
+if [ -n "$input_dir" ]; then input_dir=$(echo "$input_dir" | sed 's|\\|/|g'); fi
+if [ -n "$output_dir" ]; then output_dir=$(echo "$output_dir" | sed 's|\\|/|g'); fi
+# ===================================
 
 # 1. extract mesh
 cmd=" \

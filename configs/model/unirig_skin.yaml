@@ -25,6 +25,7 @@ mesh_encoder:
   enc_channels: [32, 64, 128, 256, 384]
   enc_num_head: [2, 4, 8, 16, 24]
   enable_qknorm: True
+  enable_flash: False
   layer_norm: False
   res_linear: True
 
