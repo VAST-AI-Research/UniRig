@@ -2,7 +2,38 @@ import argparse
 import yaml
 from box import Box
 import os
+import sys
 import torch
+
+# Windows: spconv/cumm needs CUDA bin in DLL search path
+if sys.platform == "win32":
+    _cuda_bin = os.path.join(os.environ.get("CUDA_HOME", r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8"), "bin")
+    if os.path.isdir(_cuda_bin):
+        os.add_dll_directory(_cuda_bin)
+# PyTorch 2.11+ defaults to weights_only=True; UniRig checkpoints contain Box
+# objects that aren't compatible with safe unpickling.  Force weights_only=False
+# for trusted VAST-AI checkpoints.
+import lightning.fabric.plugins.io.torch_io as _tio
+_orig_load_ckpt = _tio.TorchCheckpointIO.load_checkpoint
+def _patched_load_ckpt(self, path, map_location=None, weights_only=None):
+    return _orig_load_ckpt(self, path, map_location=map_location, weights_only=False)
+_tio.TorchCheckpointIO.load_checkpoint = _patched_load_ckpt
+
+# torch_scatter/torch_cluster compiled CPU-only on Windows (no nvcc).
+# Monkey-patch segment_csr to fall back to CPU when CUDA kernel is missing.
+import torch_scatter as _ts
+_orig_segment_csr = _ts.segment_csr
+def _safe_segment_csr(src, indptr, out=None, reduce="sum"):
+    try:
+        return _orig_segment_csr(src, indptr, out=out, reduce=reduce)
+    except RuntimeError:
+        _dev = src.device
+        result = _orig_segment_csr(src.cpu(), indptr.cpu(),
+                                   out=out.cpu() if out is not None else None,
+                                   reduce=reduce)
+        return result.to(_dev)
+_ts.segment_csr = _safe_segment_csr
+
 import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint, Callback
 from lightning.pytorch.loggers import WandbLogger

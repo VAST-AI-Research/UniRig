@@ -304,7 +304,8 @@ class SkinWriter(BasePredictionWriter):
                         # do_not_normalize=True,
                     )
                 except Exception as e:
-                    print(str(e))
+                    import traceback
+                    print(f"\n=== SKIN FBX EXPORT ERROR ===\n{traceback.format_exc()}\n=== END ===\n", flush=True)
     
     def write_on_epoch_end(self, trainer, pl_module, predictions, batch_indices):
         self._epoch += 1

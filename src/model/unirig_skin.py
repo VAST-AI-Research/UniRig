@@ -588,7 +588,6 @@ class UniRigSkin(ModelSpec):
     def predict_step(self, batch: Dict):
         with torch.no_grad():
             num_bones: Tensor = batch['num_bones']
-            
             skin_pred, _ = self._get_predict(batch=batch)
             outputs = []
             for i in range(skin_pred.shape[0]):

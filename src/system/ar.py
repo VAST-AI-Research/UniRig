@@ -340,9 +340,10 @@ class ARWriter(BasePredictionWriter):
                 path=None,
                 cls=detokenize_output.cls,
             )
-            if not self.user_mode and self.export_npz is not None:
-                print(make_path(self.export_npz, 'npz'))
-                raw_data.save(path=make_path(self.export_npz, 'npz'))
+            if self.export_npz is not None:
+                npz_path = make_path(self.export_npz, 'npz')
+                print(npz_path)
+                raw_data.save(path=npz_path)
             if not self.user_mode and self.export_obj is not None:
                 raw_data.export_skeleton(path=make_path(self.export_obj, 'obj'))
             if not self.user_mode and self.export_pc is not None:

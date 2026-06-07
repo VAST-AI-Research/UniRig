@@ -157,7 +157,12 @@ class CrossAttentionEncoder(nn.Module):
             batch = torch.arange(B).to(pc.device)
             batch = torch.repeat_interleave(batch, N)
 
-            idx = fps(pos, batch, ratio=1. / 4, random_start=self.training)
+            # Move to CPU for fps if CUDA kernel not available, then back
+            _device = pos.device
+            try:
+                idx = fps(pos, batch, ratio=1. / 4, random_start=self.training)
+            except RuntimeError:
+                idx = fps(pos.cpu(), batch.cpu(), ratio=1. / 4, random_start=self.training).to(_device)
 
             sampled_pc = pos[idx]
             sampled_pc = sampled_pc.view(B, -1, 3)
